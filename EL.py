@@ -12,6 +12,7 @@ def get_module_coordinates(ref_image_path):
     """
     # Load and process reference
     img = cv2.imread(ref_image_path, -1)
+    # Normalize if 16-bit
     if img.dtype == np.uint16:
         img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX).astype('uint8')
     elif len(img.shape) == 3:
@@ -23,7 +24,7 @@ def get_module_coordinates(ref_image_path):
     if not contours:
         raise ValueError("Could not detect module in reference image!")
 
-    # Find the "Master Box" encompassing all cells
+    # Find the "Master Box"
     min_x, min_y = float('inf'), float('inf')
     max_x, max_y = 0, 0
 
@@ -38,11 +39,11 @@ def get_module_coordinates(ref_image_path):
     return (min_x, min_y, max_x - min_x, max_y - min_y)
 
 
-def process_batch(file_list, ref_index=0):
+def process_batch_with_overlay(file_list, ref_index=0):
     """
-    Applies the grid from file_list[ref_index] to ALL files.
+    Applies the grid from file_list[ref_index] to ALL files and plots overlays.
     """
-    # 1. Get Coordinates from the Reference Image
+    # 1. Calibration
     ref_path = file_list[ref_index]
     print(f"--- Calibrating Grid using: {os.path.basename(ref_path)} ---")
     rx, ry, rw, rh = get_module_coordinates(ref_path)
@@ -53,29 +54,37 @@ def process_batch(file_list, ref_index=0):
     cell_width = rw / n_cells
     seg_height = rh / n_segments
 
-    # Storage for all data: results[filename] = 3x7 matrix
+    # Storage
     batch_results = {}
-
-    # Setup Plotting Grid (Dynamic size based on number of files)
     num_files = len(file_list)
-    cols = 3
-    rows = (num_files // cols) + (1 if num_files % cols > 0 else 0)
-    plt.figure(figsize=(15, 4 * rows))
 
-    # 2. Loop through ALL images
+    # 2. Setup Plot (One row per file, 2 columns)
+    # Height is dynamic: 3 inches per file
+    plt.figure(figsize=(12, 3 * num_files))
+
     for i, fpath in enumerate(file_list):
         if not os.path.exists(fpath):
             print(f"Skipping missing file: {fpath}")
             continue
 
-        # Load Target Image
+        filename = os.path.basename(fpath)
         img = cv2.imread(fpath, -1)
 
-        # --- CRITICAL: FORCE THE CROP ---
-        # We do NOT run thresholding here. We just cut using the Reference coords.
+        # Crop using Reference Coordinates
         roi = img[ry:ry + rh, rx:rx + rw]
 
-        # Calculate Intensity Grid
+        # --- PREPARE VISUALIZATION (Auto-Brightness) ---
+        # Convert to 8-bit for display
+        if roi.dtype == np.uint16:
+            vis_roi = cv2.normalize(roi, None, 0, 255, cv2.NORM_MINMAX).astype('uint8')
+        else:
+            vis_roi = roi.copy()
+
+        # Contrast Stretch: Make the max pixel 255 so we can see the dark images
+        vis_roi = cv2.normalize(vis_roi, None, 0, 255, cv2.NORM_MINMAX)
+        vis_img = cv2.cvtColor(vis_roi, cv2.COLOR_GRAY2BGR)
+
+        # Calculate Data
         intensity_map = np.zeros((n_segments, n_cells))
 
         for c in range(n_cells):
@@ -85,27 +94,38 @@ def process_batch(file_list, ref_index=0):
                 y1 = int(r * seg_height)
                 y2 = int((r + 1) * seg_height)
 
+                # Data Collection (Raw values)
                 segment = roi[y1:y2, x1:x2]
                 intensity_map[r, c] = np.mean(segment)
 
-        batch_results[os.path.basename(fpath)] = intensity_map
+                # Draw Grid (Green) on Visualization
+                cv2.rectangle(vis_img, (x1, y1), (x2, y2), (0, 255, 0), 1)
 
-        # Add to Subplot
-        plt.subplot(rows, cols, i + 1)
+        batch_results[filename] = intensity_map
+
+        # --- PLOTTING ---
+        # Plot 1: Heatmap (Left)
+        plt.subplot(num_files, 2, (i * 2) + 1)
         plt.imshow(intensity_map, cmap='magma', aspect='auto')
-        plt.colorbar(label='Mean Intensity')
-        plt.title(f"{os.path.basename(fpath)[:15]}...")  # Shorten title
-        plt.xticks(np.arange(n_cells), [f"C{k + 1}" for k in range(n_cells)])
-        plt.yticks(np.arange(n_segments), ["Top", "Mid", "Bot"])
+        plt.colorbar(label='Intensity')
+        plt.title(f"{filename[:10]}... - Data")
+        plt.ylabel("Top -> Bot")
+        plt.xticks([])  # Hide x-ticks to reduce clutter
+
+        # Plot 2: Overlay (Right)
+        plt.subplot(num_files, 2, (i * 2) + 2)
+        plt.imshow(vis_img, aspect='auto')  # Stretched to match heatmap
+        plt.title(f"Grid Verification (Auto-Contrast)")
+        plt.axis('off')
 
     plt.tight_layout()
     plt.show()
     return batch_results
 
-# --- EXECUTION ---
+
 # List your files here. Ensure the "Reference" (clearest one) is FIRST or specify ref_index
 root_dir = r"C:\Users\ahmed\OneDrive\Desktop\tiff_imgs\EL_Increment"
 files = sorted(glob.glob(os.path.join(root_dir, "*.tif")))
 
 # Run Analysis
-data = process_batch(files, ref_index=1)
+data = process_batch_with_overlay(files, ref_index=1)
