@@ -139,4 +139,4 @@ root_dir = r"C:\Users\ahmed\OneDrive\Desktop\tiff_imgs\EL_Increment"
 files = glob.glob(os.path.join(root_dir, "*.tif"))
 
 # Run Analysis
-data = process_batch_custom_slices(files, n_slices=5, ref_index=1)
+data = process_batch_custom_slices(files, n_slices=5, ref_index=3)
