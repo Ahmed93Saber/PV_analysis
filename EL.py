@@ -10,9 +10,7 @@ def get_module_coordinates(ref_image_path):
     Detects the module location from a bright Reference Image.
     Returns: (x, y, w, h) of the active area.
     """
-    # Load and process reference
     img = cv2.imread(ref_image_path, -1)
-    # Normalize if 16-bit
     if img.dtype == np.uint16:
         img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX).astype('uint8')
     elif len(img.shape) == 3:
@@ -39,9 +37,9 @@ def get_module_coordinates(ref_image_path):
     return (min_x, min_y, max_x - min_x, max_y - min_y)
 
 
-def process_batch_with_overlay(file_list, ref_index=0):
+def process_batch_custom_slices(file_list, n_slices=10, ref_index=0):
     """
-    Applies the grid from file_list[ref_index] to ALL files and plots overlays.
+    Applies a 7-column x n-row grid to all images.
     """
     # 1. Calibration
     ref_path = file_list[ref_index]
@@ -49,73 +47,86 @@ def process_batch_with_overlay(file_list, ref_index=0):
     rx, ry, rw, rh = get_module_coordinates(ref_path)
 
     # Grid Settings
-    n_cells = 7
-    n_segments = 3
+    n_cells = 7  # Fixed by physics (module has 7 cells)
+    n_rows = n_slices  # Defined by user
+
     cell_width = rw / n_cells
-    seg_height = rh / n_segments
+    seg_height = rh / n_rows
 
     # Storage
     batch_results = {}
     num_files = len(file_list)
 
-    # 2. Setup Plot (One row per file, 2 columns)
-    # Height is dynamic: 3 inches per file
-    plt.figure(figsize=(12, 3 * num_files))
+    # Increase figure height if n_slices is huge to ensure labels fit
+    plt.figure(figsize=(14, 4 * num_files))
 
     for i, fpath in enumerate(file_list):
         if not os.path.exists(fpath):
-            print(f"Skipping missing file: {fpath}")
             continue
 
         filename = os.path.basename(fpath)
         img = cv2.imread(fpath, -1)
 
-        # Crop using Reference Coordinates
+        # Crop
         roi = img[ry:ry + rh, rx:rx + rw]
 
-        # --- PREPARE VISUALIZATION (Auto-Brightness) ---
-        # Convert to 8-bit for display
+        # Prepare Overlay (Auto-Contrast)
         if roi.dtype == np.uint16:
             vis_roi = cv2.normalize(roi, None, 0, 255, cv2.NORM_MINMAX).astype('uint8')
         else:
             vis_roi = roi.copy()
 
-        # Contrast Stretch: Make the max pixel 255 so we can see the dark images
+        # Brighten for display
         vis_roi = cv2.normalize(vis_roi, None, 0, 255, cv2.NORM_MINMAX)
         vis_img = cv2.cvtColor(vis_roi, cv2.COLOR_GRAY2BGR)
 
-        # Calculate Data
-        intensity_map = np.zeros((n_segments, n_cells))
+        # Analysis Loop
+        intensity_map = np.zeros((n_rows, n_cells))
 
         for c in range(n_cells):
-            for r in range(n_segments):
+            for r in range(n_rows):
                 x1 = int(c * cell_width)
                 x2 = int((c + 1) * cell_width)
                 y1 = int(r * seg_height)
                 y2 = int((r + 1) * seg_height)
 
-                # Data Collection (Raw values)
+                # Extract Data
                 segment = roi[y1:y2, x1:x2]
                 intensity_map[r, c] = np.mean(segment)
 
-                # Draw Grid (Green) on Visualization
-                cv2.rectangle(vis_img, (x1, y1), (x2, y2), (0, 255, 0), 1)
+                # Draw Grid
+                # Only draw horizontal lines if n_slices is small (<50) to avoid solid green blocks
+                if n_rows < 50:
+                    cv2.rectangle(vis_img, (x1, y1), (x2, y2), (0, 255, 0), 1)
+                else:
+                    # If too many slices, just draw vertical cell dividers
+                    cv2.line(vis_img, (x1, 0), (x1, int(rh)), (0, 255, 0), 1)
+                    cv2.line(vis_img, (x2, 0), (x2, int(rh)), (0, 255, 0), 1)
 
         batch_results[filename] = intensity_map
 
         # --- PLOTTING ---
-        # Plot 1: Heatmap (Left)
+
+        # 1. Heatmap
         plt.subplot(num_files, 2, (i * 2) + 1)
         plt.imshow(intensity_map, cmap='magma', aspect='auto')
         plt.colorbar(label='Intensity')
-        plt.title(f"{filename[:10]}... - Data")
-        plt.ylabel("Top -> Bot")
-        plt.xticks([])  # Hide x-ticks to reduce clutter
+        plt.title(f"{filename[:15]}... ({n_rows} Slices)")
 
-        # Plot 2: Overlay (Right)
+        # Y-Axis formatting
+        if n_rows <= 20:
+            # Label every slice if count is low
+            plt.yticks(np.arange(n_rows), [f"S{k + 1}" for k in range(n_rows)])
+        else:
+            # If high count, just label Top and Bottom
+            plt.yticks([0, n_rows - 1], ["Top", "Bottom"])
+
+        plt.xlabel("Cell Index")
+
+        # 2. Overlay
         plt.subplot(num_files, 2, (i * 2) + 2)
-        plt.imshow(vis_img, aspect='auto')  # Stretched to match heatmap
-        plt.title(f"Grid Verification (Auto-Contrast)")
+        plt.imshow(vis_img, aspect='auto')
+        plt.title(f"Grid Overlay")
         plt.axis('off')
 
     plt.tight_layout()
@@ -125,7 +136,7 @@ def process_batch_with_overlay(file_list, ref_index=0):
 
 # List your files here. Ensure the "Reference" (clearest one) is FIRST or specify ref_index
 root_dir = r"C:\Users\ahmed\OneDrive\Desktop\tiff_imgs\EL_Increment"
-files = sorted(glob.glob(os.path.join(root_dir, "*.tif")))
+files = glob.glob(os.path.join(root_dir, "*.tif"))
 
 # Run Analysis
-data = process_batch_with_overlay(files, ref_index=1)
+data = process_batch_custom_slices(files, n_slices=5, ref_index=1)
