@@ -90,11 +90,11 @@ file_path = r"C:\Users\ahmed\OneDrive\Desktop\tiff_imgs\EL_Increment\5_251103_EL
 
 # DEFINE YOUR CUTS HERE
 # Horizontal: Enter Y-coordinates (e.g., [100] is near top, [500] is near bottom)
-horizontal_cuts = [50, 210]
+horizontal_cuts = [220]
 
 # Vertical: Enter X-coordinates (e.g., to slice through specific cells)
 # Tip: If image width is ~600, center is ~300.
-vertical_cuts = [120]
+vertical_cuts = []
 
 # Run
 analyze_cross_sections(file_path, v_lines=vertical_cuts, h_lines=horizontal_cuts)
