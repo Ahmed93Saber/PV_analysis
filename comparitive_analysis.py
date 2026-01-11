@@ -197,6 +197,6 @@ rev_files = files[8::]
 current_steps = [5, 10, 15, 20, 25, 30, 35, 40, 45]
 
 if len(fwd_files) == len(rev_files) == len(current_steps):
-    analyze_hysteresis_split_plots(fwd_files, rev_files, current_steps, ref_current_val=20, n_slices=6)
+    analyze_hysteresis_split_plots(fwd_files, rev_files, current_steps, ref_current_val=20, n_slices=5)
 else:
     print("Error: File counts mismatch.")
